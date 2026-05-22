@@ -1,0 +1,45 @@
+{
+  "name": "@kwokkwok/apm-cli",
+  "version": "0.1.1",
+  "description": "AI Provider Management CLI for Codex and Claude Code proxy takeover",
+  "type": "module",
+  "bin": {
+    "apm": "bin/apm.js"
+  },
+  "scripts": {
+    "lint": "node ./src/cli.js --help",
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "ai",
+    "cli",
+    "provider",
+    "codex",
+    "claude"
+  ],
+  "author": "Gemini CLI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KwokKwok/apm-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KwokKwok/apm-cli/issues"
+  },
+  "homepage": "https://github.com/KwokKwok/apm-cli#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "yaml": "^2.9.0"
+  }
+}
