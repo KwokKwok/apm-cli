@@ -191,3 +191,80 @@ test("goal: codex usage supports nested usage details fields", async () => {
     await new Promise((resolve) => upstream.close(resolve));
   }
 });
+
+test("goal: codex Responses SSE ttft uses first output_text delta", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "apm-codex-ttft-"));
+  process.env.HOME = home;
+
+  const upstreamPort = await getFreePort();
+  const proxyPort = await getFreePort();
+
+  const upstream = await new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      if (req.method === "POST" && req.url === "/v1/responses") {
+        res.writeHead(200, {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+        });
+        res.write(`data: ${JSON.stringify({ type: "response.created", response: { id: "resp_ttft" } })}\n\n`);
+        setTimeout(() => {
+          res.write(`data: ${JSON.stringify({ type: "response.output_text.delta", delta: "你" })}\n\n`);
+          res.write(
+            `data: ${JSON.stringify({
+              type: "response.completed",
+              response: { usage: { input_tokens: 3, output_tokens: 1 } },
+            })}\n\n`,
+          );
+          res.write("data: [DONE]\n\n");
+          res.end();
+        }, 80);
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.once("error", reject);
+    server.listen(upstreamPort, host, () => resolve(server));
+  });
+
+  const { loadConfig, saveConfig } = await import("../src/config.js");
+  const { startProxyServer } = await import("../src/proxy-server.js");
+  const { readLastProxyLogs } = await import("../src/logs.js");
+
+  const config = loadConfig();
+  config.server.host = host;
+  config.server.port = proxyPort;
+  config.agents.codex.providers = [
+    {
+      name: "cx-ttft",
+      base_url: `http://${host}:${upstreamPort}`,
+      api_key_env: "OPENAI_API_KEY",
+      models: { default: null, sonnet: null, opus: null, haiku: null },
+      failover: { enabled: false, order: null },
+    },
+  ];
+  config.agents.codex.active = "cx-ttft";
+  saveConfig(config);
+
+  const proxy = await startProxyServer({ host, port: proxyPort });
+  try {
+    const response = await fetch(`http://${host}:${proxyPort}/v1/responses`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer test-key",
+      },
+      body: JSON.stringify({ model: "gpt-5.3-codex", input: "hi" }),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+
+    const logs = readLastProxyLogs(10);
+    const done = [...logs].reverse().find((item) => item.phase === "done" && item.agent === "codex");
+    assert.ok(done, "expected done log entry");
+    assert.ok(done.ttft >= 0.05, `expected content ttft, got ${done.ttft}`);
+  } finally {
+    await new Promise((resolve) => proxy.close(resolve));
+    await new Promise((resolve) => upstream.close(resolve));
+  }
+});

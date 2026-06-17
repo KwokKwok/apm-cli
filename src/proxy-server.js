@@ -184,10 +184,26 @@ function extractUsageFromSse(text) {
   return latest;
 }
 
-function computeTps(outputTokens, totalMs, ttftMs, isSse) {
+function hasContentPayload(obj) {
+  if (!obj || typeof obj !== "object") return false;
+  // Anthropic: delta.text on content_block_delta
+  if (typeof obj.delta?.text === "string" && obj.delta.text.length > 0) return true;
+  // OpenAI Responses: response.output_text.delta
+  if (obj.type === "response.output_text.delta" && typeof obj.delta === "string" && obj.delta.length > 0) {
+    return true;
+  }
+  // OpenAI: choices[0].delta.content
+  const content = obj.choices?.[0]?.delta?.content;
+  if (typeof content === "string" && content.length > 0) return true;
+  // Some providers expose a top-level text delta
+  if (typeof obj.text === "string" && obj.text.length > 0) return true;
+  return false;
+}
+
+function computeTps(outputTokens, totalSec, ttftSec, isSse) {
   if (!Number.isFinite(outputTokens) || outputTokens <= 0) return null;
-  const generationMs = isSse ? Math.max(1, totalMs - ttftMs) : Math.max(1, totalMs);
-  return (outputTokens * 1000) / generationMs;
+  const generationSec = isSse ? Math.max(0.001, totalSec - ttftSec) : Math.max(0.001, totalSec);
+  return outputTokens / generationSec;
 }
 
 function buildClaudeVisibleModels() {
@@ -329,6 +345,7 @@ async function proxyRequest(req, res) {
     const payload = buildClaudeVisibleModels();
     const endedAt = Date.now();
     const totalMs = endedAt - startedAt;
+    const totalSec = totalMs / 1000;
     appendProxyLog({
       ts: new Date(endedAt).toISOString(),
       phase: "done",
@@ -337,7 +354,7 @@ async function proxyRequest(req, res) {
       model: null,
       status: 200,
       tokens: null,
-      ttft_ms: totalMs,
+      ttft: totalSec,
       tps: null,
       duration_ms: totalMs,
       path: routed.strippedPath,
@@ -358,7 +375,7 @@ async function proxyRequest(req, res) {
     upstream_model: null,
     status: null,
     tokens: null,
-    ttft_ms: null,
+    ttft: null,
     tps: null,
     duration_ms: null,
     path: routed.strippedPath,
@@ -426,6 +443,7 @@ async function proxyRequest(req, res) {
   if (!upstream.body) {
     const endedAt = Date.now();
     const totalMs = endedAt - startedAt;
+    const totalSec = totalMs / 1000;
     appendProxyLog({
       ts: new Date(endedAt).toISOString(),
       phase: "done",
@@ -435,7 +453,7 @@ async function proxyRequest(req, res) {
       upstream_model: usedUpstreamModel,
       status: upstream.status,
       tokens: null,
-      ttft_ms: totalMs,
+      ttft: totalSec,
       tps: null,
       duration_ms: totalMs,
       path: routed.strippedPath,
@@ -444,12 +462,34 @@ async function proxyRequest(req, res) {
     return;
   }
 
+  const contentType = String(upstream.headers.get("content-type") || "");
+  const isSse = contentType.toLowerCase().includes("text/event-stream");
+
+  let firstContentAt = null;
+  let sseLineCarry = "";
   for await (const chunk of upstream.body) {
     if (firstByteAt == null) {
       firstByteAt = Date.now();
     }
+    const chunkText = Buffer.from(chunk).toString("utf8");
     if (responseBuffer.length < 2_000_000) {
-      responseBuffer += Buffer.from(chunk).toString("utf8");
+      responseBuffer += chunkText;
+    }
+    if (isSse && firstContentAt == null) {
+      sseLineCarry += chunkText;
+      const lines = sseLineCarry.split("\n");
+      sseLineCarry = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const data = trimmed.slice(5).trim();
+        if (!data || data === "[DONE]") continue;
+        const obj = safeJsonParse(data);
+        if (obj && hasContentPayload(obj)) {
+          firstContentAt = Date.now();
+          break;
+        }
+      }
     }
     res.write(chunk);
   }
@@ -457,12 +497,15 @@ async function proxyRequest(req, res) {
 
   const endedAt = Date.now();
   const totalMs = endedAt - startedAt;
-  const ttftMs = firstByteAt == null ? totalMs : firstByteAt - startedAt;
-  const contentType = String(upstream.headers.get("content-type") || "");
-  const isSse = contentType.toLowerCase().includes("text/event-stream");
+  const totalSec = totalMs / 1000;
+  const firstByteMs = firstByteAt == null ? totalMs : firstByteAt - startedAt;
+  const ttftMs = isSse && firstContentAt != null
+    ? firstContentAt - startedAt
+    : firstByteMs;
+  const ttft = ttftMs / 1000;
   const usage = isSse ? extractUsageFromSse(responseBuffer) : extractUsageFromResponseText(responseBuffer);
   const outputTokens = usage?.output ?? null;
-  const tps = computeTps(outputTokens, totalMs, ttftMs, isSse);
+  const tps = computeTps(outputTokens, totalSec, ttft, isSse);
 
   appendProxyLog({
     ts: new Date(endedAt).toISOString(),
@@ -473,7 +516,7 @@ async function proxyRequest(req, res) {
     upstream_model: usedUpstreamModel,
     status: upstream.status,
     tokens: usage,
-    ttft_ms: ttftMs,
+    ttft,
     tps,
     duration_ms: totalMs,
     path: routed.strippedPath,

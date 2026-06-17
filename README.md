@@ -49,6 +49,7 @@ apm status
 
 ```bash
 apm <agent> add <name> --base-url <url> --api-key-env <ENV> [--model <id>] [--sonnet <id>] [--opus <id>] [--haiku <id>]
+apm <agent> update <name> [--base-url <url>] [--api-key-env <ENV>] [--model <id>] [--sonnet <id>] [--opus <id>] [--haiku <id>]
 apm <agent> list
 apm <agent> show <name>
 apm <agent> remove <name>
@@ -82,6 +83,9 @@ apm <codex|claude-code|cc> enable
 # - 关闭该 agent 的 global takeover
 # - 清理“当前目录”的 local 绑定
 apm <codex|claude-code|cc> disable
+
+# Codex 回到官方订阅 / OAuth
+apm codex oauth
 ```
 
 自动联动：
@@ -137,7 +141,7 @@ apm list [--json]
 apm logs [--lines <N>] [--follow|-f]
 
 # 连通性测试
-apm <agent> test <name|--all> [--model <id>] [--json]
+apm <agent> test <name|--all> [--model <id>] [--inference] [--json]
 
 # 从 cc-switch sqlite 导入
 apm import cc-switch [--db <path>] [--agent <codex|claude-code|all>] [--json]
@@ -155,6 +159,7 @@ apm import cc-switch [--db <path>] [--agent <codex|claude-code|all>] [--json]
 ```bash
 # agent 写命令
 apm <agent> add <name> --base-url <url> --api-key-env <ENV> [--model <id>] [--sonnet <id>] [--opus <id>] [--haiku <id>]
+apm <agent> update <name> [--base-url <url>] [--api-key-env <ENV>] [--model <id>] [--sonnet <id>] [--opus <id>] [--haiku <id>]
 apm <agent> remove <name>
 apm <agent> use <name> [--global|--local]
 apm <agent> unset --local
@@ -162,11 +167,12 @@ apm <agent> failover on|off
 apm <agent> failover enable <provider>
 apm <agent> failover disable <provider>
 apm <agent> failover move <provider> --to <index>
+apm codex oauth
 
 # agent 读命令
 apm <agent> list [--json]
 apm <agent> show <name> [--json]
-apm <agent> test <name|--all> [--model <id>] [--json]
+apm <agent> test <name|--all> [--model <id>] [--inference] [--json]
 
 # root 命令
 apm list [--json]

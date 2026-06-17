@@ -54,12 +54,14 @@ export function formatProxyLog(entry) {
   const outTok = entry.tokens?.output ?? null;
   const cacheRead = entry.tokens?.cache_read ?? null;
   const cacheCreate = entry.tokens?.cache_create ?? null;
-  const ttft = entry.ttft_ms ?? null;
+  const ttft = entry.ttft ?? (
+    entry.ttft_ms == null ? null : Number(entry.ttft_ms) / 1000
+  );
   const tps = entry.tps ?? null;
   const status = entry.status ?? "-";
   const agent = entry.agent || "-";
   const candidates = Array.isArray(entry.candidates)
     ? entry.candidates.join(">")
     : "-";
-  return `${ts} phase=${phase} agent=${agent} provider=${provider} model=${model} upstream_model=${upstreamModel} status=${status} in=${fmt(inTok, 0)} out=${fmt(outTok, 0)} cache_read=${fmt(cacheRead, 0)} cache_create=${fmt(cacheCreate, 0)} ttft_ms=${fmt(ttft, 0)} tps=${fmt(tps)} candidates=${candidates}`;
+  return `${ts} phase=${phase} agent=${agent} provider=${provider} model=${model} upstream_model=${upstreamModel} status=${status} in=${fmt(inTok, 0)} out=${fmt(outTok, 0)} cache_read=${fmt(cacheRead, 0)} cache_create=${fmt(cacheCreate, 0)} ttft=${fmt(ttft, 2)}s tps=${fmt(tps)} candidates=${candidates}`;
 }

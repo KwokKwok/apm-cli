@@ -83,10 +83,20 @@ function backupToBothLocations(sourcePath, agent, fileName) {
 export function enableCodexTakeover(proxyOrigin) {
   ensureApmLayout();
   const { authPath, configPath } = codexPaths();
+  const state = readTakeoverState();
+  const alreadyEnabled = Boolean(state.codex);
 
-  const authOriginal = backupToBothLocations(authPath, "codex", "auth.json");
-  const configOriginal = backupToBothLocations(configPath, "codex", "config.toml");
-  const originalModelProvider = configOriginal ? readModelProviderValue(configOriginal) : null;
+  if (!alreadyEnabled) {
+    backupToBothLocations(authPath, "codex", "auth.json");
+  }
+  const configOriginal = alreadyEnabled
+    ? null
+    : backupToBothLocations(configPath, "codex", "config.toml");
+  const originalModelProvider = alreadyEnabled
+    ? state.codex?.originalModelProvider ?? null
+    : configOriginal
+      ? readModelProviderValue(configOriginal)
+      : null;
 
   const auth = readJson(authPath, {});
   auth.OPENAI_API_KEY = APM_API_KEY;
@@ -115,10 +125,11 @@ requires_openai_auth = true
 `;
   writeText(configPath, configText);
 
-  const state = readTakeoverState();
   state.codex = {
+    ...(alreadyEnabled && typeof state.codex === "object" ? state.codex : {}),
     originalModelProvider,
-    enabledAt: new Date().toISOString(),
+    enabledAt: state.codex?.enabledAt || new Date().toISOString(),
+    refreshedAt: alreadyEnabled ? new Date().toISOString() : undefined,
   };
   writeTakeoverState(state);
 
@@ -188,11 +199,15 @@ export function disableCodexTakeover() {
 export function enableClaudeTakeover(proxyOrigin) {
   ensureApmLayout();
   const { settingsPath } = claudePaths();
+  const state = readTakeoverState();
+  const alreadyEnabled = Boolean(state.claude);
 
-  const settingsOriginal = backupToBothLocations(settingsPath, "claude", "settings.json");
+  const settingsOriginal = alreadyEnabled
+    ? null
+    : backupToBothLocations(settingsPath, "claude", "settings.json");
   const originalBaseUrl = settingsOriginal
     ? JSON.parse(settingsOriginal).env?.ANTHROPIC_BASE_URL
-    : null;
+    : state.claude?.originalBaseUrl ?? null;
 
   const settings = readJson(settingsPath, {});
   const env = { ...(settings.env || {}) };
@@ -209,10 +224,11 @@ export function enableClaudeTakeover(proxyOrigin) {
   settings.env = env;
   writeJson(settingsPath, settings);
 
-  const state = readTakeoverState();
   state.claude = {
+    ...(alreadyEnabled && typeof state.claude === "object" ? state.claude : {}),
     originalBaseUrl,
-    enabledAt: new Date().toISOString(),
+    enabledAt: state.claude?.enabledAt || new Date().toISOString(),
+    refreshedAt: alreadyEnabled ? new Date().toISOString() : undefined,
   };
   writeTakeoverState(state);
 
@@ -266,6 +282,34 @@ export function disableClaudeTakeover() {
   writeTakeoverState(newState);
 
   return { settingsPath };
+}
+
+export function resetCodexToOAuth() {
+  const { authPath, configPath } = codexPaths();
+
+  const auth = readJson(authPath, null);
+  if (auth && typeof auth === "object" && Object.hasOwn(auth, "OPENAI_API_KEY")) {
+    delete auth.OPENAI_API_KEY;
+    if (isEmptyObject(auth)) {
+      fs.unlinkSync(authPath);
+    } else {
+      writeJson(authPath, auth);
+    }
+  }
+
+  let configText = readText(configPath, "");
+  configText = configText.replace(/^\s*model_provider\s*=\s*".*?"\s*$/m, "");
+  configText = configText.replace(/^\s*preferred_auth_method\s*=\s*".*?"\s*$/m, "");
+  configText = configText.replace(sectionRegex("model_providers.apm"), "\n");
+  configText = configText.replace(/\[model_providers\]\s*\n/g, "");
+  configText = configText.trim();
+  if (configText) {
+    writeText(configPath, `${configText}\n`);
+  } else if (fs.existsSync(configPath)) {
+    fs.unlinkSync(configPath);
+  }
+
+  return { authPath, configPath };
 }
 
 export function getTakeoverState() {

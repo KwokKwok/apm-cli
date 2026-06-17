@@ -1,6 +1,6 @@
 {
   "name": "@kwokkwok/apm-cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "AI Provider Management CLI for Codex and Claude Code proxy takeover",
   "type": "module",
   "bin": {

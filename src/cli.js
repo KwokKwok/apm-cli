@@ -36,6 +36,7 @@ import {
   enableClaudeTakeover,
   enableCodexTakeover,
   getTakeoverState,
+  resetCodexToOAuth,
 } from "./takeover.js";
 import { formatProxyLog, getProxyLogPath, readLastProxyLogs } from "./logs.js";
 import { TerminalUi } from "./ui/terminal-ui.js";
@@ -201,6 +202,40 @@ function cmdAgentAdd(agent, args) {
   });
 }
 
+function cmdAgentUpdate(agent, args) {
+  const { options, positionals } = parseOptions(args);
+  const [name] = positionals;
+  if (!name) throw new Error("missing provider name");
+
+  const config = loadConfig();
+  const provider = resolveProviderByName(config, agent, name);
+
+  if (options["base-url"] !== undefined) {
+    provider.base_url = String(options["base-url"]);
+  }
+  if (options["api-key-env"] !== undefined) {
+    provider.api_key_env = String(options["api-key-env"]);
+  }
+  if (options.model !== undefined) {
+    provider.models.default = options.model || null;
+  }
+  if (options.sonnet !== undefined) {
+    provider.models.sonnet = options.sonnet || null;
+  }
+  if (options.opus !== undefined) {
+    provider.models.opus = options.opus || null;
+  }
+  if (options.haiku !== undefined) {
+    provider.models.haiku = options.haiku || null;
+  }
+
+  saveConfig(config);
+
+  TerminalUi.printOutput(options, { ok: true, agent, provider: name }, () => {
+    console.log(`[${TerminalUi.agentTitle(agent)}] updated provider: ${name}`);
+  });
+}
+
 function cmdAgentList(agent, args) {
   const { options } = parseOptions(args);
   const config = loadConfig();
@@ -318,6 +353,7 @@ async function cmdAgentTest(agent, args) {
   const [first] = positionals;
   const testAll = first === "--all" || options.all === true;
   const model = typeof options.model === "string" ? options.model : null;
+  const inference = options.inference === true;
 
   const config = loadConfig();
   const providers = config.agents[agent].providers;
@@ -327,7 +363,7 @@ async function cmdAgentTest(agent, args) {
     const results = [];
     let passed = 0;
     for (const provider of providers) {
-      const result = await testProvider(agent, provider, 10_000, model);
+      const result = await testProvider(agent, provider, 10_000, model, inference);
       results.push({ provider: provider.name, ...result });
       if (result.ok) passed += 1;
     }
@@ -351,7 +387,7 @@ async function cmdAgentTest(agent, args) {
   const name = first;
   if (!name) throw new Error("missing provider name or --all");
   const provider = resolveProviderByName(config, agent, name);
-  const result = await testProvider(agent, provider, 10_000, model);
+  const result = await testProvider(agent, provider, 10_000, model, inference);
 
   if (asJsonEnabled(options)) {
     console.log(JSON.stringify({ agent, provider: provider.name, ...result }, null, 2));
@@ -555,6 +591,16 @@ async function cmdAgentTakeover(agent, args, runtimeOptions = {}) {
     const changed = disableClaudeTakeover();
     if (!quiet) console.log(`claude-code takeover disabled: ${changed.settingsPath}`);
   }
+  await syncProxyLifecycleWithTakeover();
+}
+
+async function cmdCodexOAuth(agent) {
+  if (agent !== "codex") {
+    throw new Error("oauth command is only supported for codex");
+  }
+  disableCodexTakeover();
+  const changed = resetCodexToOAuth();
+  console.log(`codex reset to OAuth: ${changed.authPath}, ${changed.configPath}`);
   await syncProxyLifecycleWithTakeover();
 }
 
@@ -848,6 +894,7 @@ export async function runCli(argv) {
   }
 
   if (command === "add") return cmdAgentAdd(agent, args);
+  if (command === "update") return cmdAgentUpdate(agent, args);
   if (command === "list") return cmdAgentList(agent, args);
   if (command === "show") return cmdAgentShow(agent, args);
   if (command === "remove") return cmdAgentRemove(agent, args);
@@ -857,6 +904,7 @@ export async function runCli(argv) {
   if (command === "failover") return cmdAgentFailover(agent, args);
   if (command === "enable") return cmdAgentTakeover(agent, ["enable"]);
   if (command === "disable") return cmdRootDisable([agent]);
+  if (command === "oauth") return cmdCodexOAuth(agent);
   throw new Error(`unknown ${agent} command: ${command}`);
 }
 

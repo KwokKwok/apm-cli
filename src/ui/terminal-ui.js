@@ -84,10 +84,17 @@ function toLocalTimeLabel(ts) {
   return `${date} ${time}`;
 }
 
-function formatTtftSeconds(ttftMs) {
-  const n = Number(ttftMs);
+function formatSeconds(value) {
+  if (value == null) return null;
+  const n = Number(value);
   if (!Number.isFinite(n)) return null;
-  return `${(n / 1000).toFixed(1)}s`;
+  return `${n.toFixed(1)}s`;
+}
+
+function readTtftSeconds(entry) {
+  if (entry?.ttft != null) return entry.ttft;
+  if (entry?.ttft_ms == null) return null;
+  return Number(entry.ttft_ms) / 1000;
 }
 
 function formatTpsInteger(tps) {
@@ -212,18 +219,20 @@ export class TerminalUi {
 
 Usage:
   apm <agent> add <name> --base-url <url> --api-key-env <ENV> [--model <id>] [--sonnet <id>] [--opus <id>] [--haiku <id>]
+  apm <agent> update <name> [--base-url <url>] [--api-key-env <ENV>] [--model <id>] [--sonnet <id>] [--opus <id>] [--haiku <id>]
   apm <agent> list [--json]
   apm <agent> show <name> [--json]
   apm <agent> remove <name>
   apm <agent> use <name> [--global|--local] [--json]
   apm <agent> unset --local
-  apm <agent> test <name|--all> [--model <id>] [--json]
+  apm <agent> test <name|--all> [--model <id>] [--inference] [--json]
   apm <agent> failover on|off
   apm <agent> failover enable <provider>
   apm <agent> failover disable <provider>
   apm <agent> failover move <provider> --to <index>
   apm <agent> enable
   apm <agent> disable
+  apm codex oauth
 
   apm list [--json]
   apm rename <old-name> <new-name> [-a <codex|claude-code|cc>]
@@ -365,7 +374,7 @@ Agents:
     const provider = entry.provider || "-";
     const model = entry.model ? String(entry.model) : "-";
     const status = colorStatusCode(entry.status ?? "-");
-    const ttft = formatTtftSeconds(entry.ttft_ms);
+    const ttft = formatSeconds(readTtftSeconds(entry));
     const tps = formatTpsInteger(entry.tps);
     const phaseText = phase === "done" ? tone.green(phase) : tone.yellow(phase);
     if (phase === "start") {
